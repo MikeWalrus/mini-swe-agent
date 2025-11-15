@@ -81,7 +81,7 @@ class BubblewrapEnvironment:
         """Execute a command in the bubblewrap environment and return the result as a dict."""
         cwd = cwd or self.config.cwd or str(self.working_dir)
 
-        cmd = [self.config.executable] + self.config.wrapper_args + ["--bind", cwd, cwd, "--chdir", cwd]
+        cmd = [self.config.executable] + self.config.wrapper_args + ["--bind", cwd, "/testbed", "--chdir", "/testbed"]
 
         # Add environment variables
         for key, value in self.config.env.items():

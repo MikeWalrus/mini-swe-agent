@@ -213,7 +213,7 @@ agent:
   cost_limit: 3.
 
 environment:
-  cwd: "/testbed"
+  cwd: "./workspaces/marshmallow-1343"
   timeout: 60
   env:
     PAGER: cat
@@ -221,10 +221,10 @@ environment:
     LESS: -R
     PIP_PROGRESS_BAR: 'off'
     TQDM_DISABLE: '1'
-  environment_class: docker
+  environment_class: bubblewrap
 
 model:
-  model_name: "anthropic/claude-sonnet-4-5-20250929"
+  model_name: "gemini/gemini-2.5-pro"
   model_kwargs:
     drop_params: true
     temperature: 0.0
