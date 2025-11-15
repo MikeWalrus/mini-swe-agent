@@ -23,6 +23,13 @@ prompt_session = PromptSession(history=FileHistory(global_config_dir / "interact
 
 
 @dataclass
+class SnapshotInfo:
+    name: str
+    message_count: int
+    step_number: int
+
+
+@dataclass
 class InteractiveAgentConfig(AgentConfig):
     mode: Literal["human", "confirm", "yolo"] = "confirm"
     """Whether to confirm actions."""
@@ -38,6 +45,8 @@ class InteractiveAgent(DefaultAgent):
     def __init__(self, *args, config_class=InteractiveAgentConfig, **kwargs):
         super().__init__(*args, config_class=config_class, **kwargs)
         self.cost_last_confirmed = 0.0
+        self.snapshots: list[SnapshotInfo] = []
+        self.step_number = 0
 
     def add_message(self, role: str, content: str, **kwargs):
         # Extend supermethod to print messages
@@ -94,6 +103,7 @@ class InteractiveAgent(DefaultAgent):
         # Override the execute_action method to handle user confirmation
         if self.should_ask_confirmation(action["action"]):
             self.ask_confirmation()
+        self._create_snapshot()
         return super().execute_action(action)
 
     def should_ask_confirmation(self, action: str) -> bool:
@@ -125,8 +135,12 @@ class InteractiveAgent(DefaultAgent):
                 f"[bold green]/y[/bold green] to switch to [bold yellow]yolo[/bold yellow] mode (execute LM commands without confirmation)\n"
                 f"[bold green]/c[/bold green] to switch to [bold yellow]confirmation[/bold yellow] mode (ask for confirmation before executing LM commands)\n"
                 f"[bold green]/u[/bold green] to switch to [bold yellow]human[/bold yellow] mode (execute commands issued by the user)\n"
+                f"[bold green]/r[/bold green] to list available snapshots\n"
+                f"[bold green]/r N[/bold green] to rollback to step N\n"
             )
             return self._prompt_and_handle_special(prompt)
+        if user_input.startswith("/r"):
+            return self._handle_rollback(user_input)
         if user_input in self._MODE_COMMANDS_MAPPING:
             if self.config.mode == self._MODE_COMMANDS_MAPPING[user_input]:
                 return self._prompt_and_handle_special(
@@ -136,6 +150,49 @@ class InteractiveAgent(DefaultAgent):
             console.print(f"Switched to [bold green]{self.config.mode}[/bold green] mode.")
             return user_input
         return user_input
+
+    def _create_snapshot(self) -> None:
+        """Create a btrfs snapshot before executing a step."""
+        if hasattr(self.env, "create_snapshot") and self.env.config.cwd:
+            snapshot_name = f"step-{self.step_number}"
+            try:
+                self.env.create_snapshot(snapshot_name)
+                self.snapshots.append(SnapshotInfo(snapshot_name, len(self.messages), self.step_number))
+                self.step_number += 1
+            except Exception as e:
+                console.print(f"[yellow]Warning: Failed to create snapshot: {e}[/yellow]")
+
+    def _handle_rollback(self, user_input: str) -> str:
+        """Handle /r and /r N commands for rollback."""
+        parts = user_input.split()
+        if len(parts) == 1:
+            if not self.snapshots:
+                console.print("[yellow]No snapshots available[/yellow]")
+            else:
+                console.print("[bold green]Available snapshots:[/bold green]")
+                for snapshot in self.snapshots:
+                    console.print(f"  Step {snapshot.step_number}: {snapshot.name} ({snapshot.message_count} messages)")
+            return self._prompt_and_handle_special("[bold yellow]>[/bold yellow] ")
+        
+        try:
+            target_step = int(parts[1])
+            snapshot_info = next((s for s in self.snapshots if s.step_number == target_step), None)
+            if not snapshot_info:
+                console.print(f"[red]Snapshot for step {target_step} not found[/red]")
+                return self._prompt_and_handle_special("[bold yellow]>[/bold yellow] ")
+            
+            if hasattr(self.env, "rollback_snapshot"):
+                self.env.rollback_snapshot(snapshot_info.name)
+                self.messages = self.messages[:snapshot_info.message_count]
+                self.snapshots = [s for s in self.snapshots if s.step_number <= target_step]
+                self.step_number = target_step + 1
+                console.print(f"[bold green]Rolled back to step {target_step}[/bold green]")
+            else:
+                console.print("[red]Environment does not support rollback[/red]")
+        except (ValueError, IndexError):
+            console.print("[red]Invalid rollback command. Use /r to list snapshots or /r N to rollback to step N[/red]")
+        
+        return self._prompt_and_handle_special("[bold yellow]>[/bold yellow] ")
 
     def has_finished(self, output: dict[str, str]):
         try:

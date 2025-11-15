@@ -100,6 +100,40 @@ class BubblewrapEnvironment:
         )
         return {"output": result.stdout, "returncode": result.returncode}
 
+    def create_snapshot(self, name: str) -> Path:
+        """Create a btrfs snapshot of cwd with the given name."""
+        if not self.config.cwd:
+            raise ValueError("Cannot create snapshot: cwd is not set")
+        cwd_path = Path(self.config.cwd)
+        snapshot_path = cwd_path.parent / f".snapshots-{cwd_path.name}" / name
+        snapshot_path.parent.mkdir(exist_ok=True)
+        subprocess.run(
+            ["btrfs", "subvolume", "snapshot", self.config.cwd, str(snapshot_path)],
+            check=True,
+            capture_output=True,
+        )
+        return snapshot_path
+
+    def rollback_snapshot(self, name: str) -> None:
+        """Rollback cwd to a btrfs snapshot."""
+        if not self.config.cwd:
+            raise ValueError("Cannot rollback: cwd is not set")
+        cwd_path = Path(self.config.cwd)
+        snapshot_path = cwd_path.parent / f".snapshots-{cwd_path.name}" / name
+        if not snapshot_path.exists():
+            raise ValueError(f"Snapshot {name} does not exist")
+        
+        subprocess.run(
+            ["btrfs", "subvolume", "delete", self.config.cwd],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["btrfs", "subvolume", "snapshot", str(snapshot_path), self.config.cwd],
+            check=True,
+            capture_output=True,
+        )
+
     def cleanup(self):
         if self.working_dir.exists():
             shutil.rmtree(self.working_dir)

@@ -61,7 +61,7 @@ def main(
     agent = InteractiveAgent(
         get_model(model_name, config.get("model", {})),
         env,
-        **({"mode": "yolo"} | config.get("agent", {})),
+        **({"mode": "confirm"} | config.get("agent", {})),
     )
 
     exit_status, result, extra_info = None, None, None
